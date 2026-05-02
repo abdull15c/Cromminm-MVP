@@ -1,0 +1,68 @@
+{
+  "name": "cromminm",
+  "version": "1.0.0",
+  "main": "desktop/electron/main.cjs",
+  "description": "Browser profile manager for QA and testing",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -k \"npm run dev --prefix local-api\" \"npm run dev --prefix desktop\"",
+    "dev:api": "npm run dev --prefix local-api",
+    "dev:desktop": "npm run dev --prefix desktop",
+    "build": "npm run build --prefix local-api && npm run build --prefix desktop",
+    "start": "npm run start --prefix desktop",
+    "automation:run": "node automation/run.mjs",
+    "automation:install-browsers": "npx playwright install chromium",
+    "dist": "npm run build && electron-builder",
+    "dump:code": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/dump-code.ps1"
+  },
+  "build": {
+    "appId": "com.cromminm.profiles",
+    "productName": "Cromminm",
+    "directories": {
+      "output": "dist_electron"
+    },
+    "files": [
+      "desktop/dist/**/*",
+      "desktop/electron/**/*",
+      "local-api/dist/**/*",
+      "local-api/package.json",
+      "shared/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "automation",
+        "to": "automation",
+        "filter": [
+          "**/*",
+          "!output/**/*",
+          "!sessions/**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": "portable",
+      "icon": "desktop/public/icon.ico"
+    },
+    "asar": false
+  },
+  "keywords": [
+    "electron",
+    "browser-profiles",
+    "qa"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "electron": "^41.4.0",
+    "electron-builder": "^26.8.1"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.2.0",
+    "dotenv": "^17.4.2",
+    "fastify": "^5.8.5",
+    "playwright": "^1.59.1",
+    "playwright-extra": "^4.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2"
+  }
+}

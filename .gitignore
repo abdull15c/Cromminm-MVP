@@ -1,0 +1,20 @@
+node_modules/
+desktop/node_modules/
+local-api/node_modules/
+desktop/dist/
+local-api/dist/
+local-api/data/
+automation/output/
+automation/state/
+automation/sessions/
+.env
+
+# User data and build artifacts
+/data/
+/dist_electron/
+code_dump.txt
+/artifacts/
+
+# OS files
+.DS_Store
+Thumbs.db
