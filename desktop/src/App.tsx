@@ -251,6 +251,10 @@ function App() {
   const [cookieImportContent, setCookieImportContent] = useState("");
   const [cookieImportFormat, setCookieImportFormat] = useState<"json" | "netscape">("json");
 
+  const [editingProfile, setEditingProfile] = useState<Profile | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editProxy, setEditProxy] = useState("");
+
   const loadProfiles = async () => {
     const response = await fetch(`${API}/profiles`);
     const data = (await response.json()) as { items: Profile[] };
@@ -288,6 +292,13 @@ function App() {
     }, 4000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (message && message !== "Ready" && !message.startsWith("Creating") && !message.startsWith("Updating")) {
+      const timer = setTimeout(() => setMessage("Ready"), 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [message]);
 
   const createProfile = async () => {
     if (!name.trim()) return;
@@ -341,25 +352,23 @@ function App() {
     }
   };
 
-  const editProfile = async (profile: Profile) => {
-    const nextName = window.prompt("Profile name", profile.name);
-    if (nextName === null) return;
+  const editProfile = (profile: Profile) => {
+    setEditingProfile(profile);
+    setEditName(profile.name);
+    setEditProxy(profile.proxy ?? "");
+  };
 
-    const nextProxyRaw = window.prompt(
-      "Proxy (leave empty to unset)",
-      profile.proxy ?? "",
-    );
-    if (nextProxyRaw === null) return;
-
-    setBusyId(profile.id);
-    setMessage(`Updating ${profile.name}...`);
+  const saveEditProfile = async () => {
+    if (!editingProfile) return;
+    setBusyId(editingProfile.id);
+    setMessage(`Updating ${editingProfile.name}...`);
     try {
-      const response = await fetch(`${API}/profiles/${profile.id}`, {
+      const response = await fetch(`${API}/profiles/${editingProfile.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: nextName.trim(),
-          proxy: nextProxyRaw.trim() || undefined,
+          name: editName.trim(),
+          proxy: editProxy.trim() || undefined,
         }),
       });
 
@@ -368,8 +377,9 @@ function App() {
         throw new Error(data.error ?? "Update failed");
       }
 
-      setMessage(`${profile.name} updated`);
+      setMessage(`${editingProfile.name} updated`);
       await loadProfiles();
+      setEditingProfile(null);
     } catch (error) {
       const text = error instanceof Error ? error.message : "Unknown error";
       setMessage(`Error: ${text}`);
@@ -931,51 +941,83 @@ function App() {
               </details>
 
               {profiles.length === 0 ? (
-                <div className="ap-empty">No profiles yet — create one above.</div>
+                <div className="ap-empty-state">
+                  <div className="ap-empty-icon">👥</div>
+                  <h3>No Profiles Found</h3>
+                  <p>You don't have any browser profiles yet. Create your first one to get started.</p>
+                </div>
               ) : filteredProfiles.length === 0 ? (
-                <div className="ap-empty">No profiles match search or status filter.</div>
+                <div className="ap-empty-state">
+                  <div className="ap-empty-icon">🔍</div>
+                  <h3>No matches</h3>
+                  <p>No profiles match your current search or status filter.</p>
+                </div>
               ) : (
-                <div className="ap-card-grid">
-                  {filteredProfiles.map((profile) => (
-                    <article key={profile.id} className="ap-profile-card">
-                      <div className="ap-card-top">
-                        <span className={`ap-status-dot ${profile.running ? "on" : ""}`} title={profile.running ? "Running" : "Stopped"} />
-                        <div className="ap-card-title-block">
-                          <div className="ap-card-title">{profile.name}</div>
-                          <div className="ap-card-proxy" title={profile.proxy ?? "Direct connection"}>
-                            {profile.proxy ? truncateMiddle(profile.proxy, 42) : "Direct · no proxy"}
-                          </div>
-                          <div className="ap-card-meta">{truncateMiddle(profile.id, 36)}</div>
-                        </div>
-                      </div>
-                      <div className="ap-card-actions">
-                        <button
-                          type="button"
-                          className="ap-btn ap-btn-primary"
-                          onClick={() => void actionProfile(profile, profile.running ? "stop" : "start")}
-                          disabled={busyId === profile.id}
-                        >
-                          {profile.running ? "Stop" : "Start"}
-                        </button>
-                        <button
-                          type="button"
-                          className="ap-btn"
-                          onClick={() => void editProfile(profile)}
-                          disabled={busyId === profile.id}
-                        >
-                          Edit
-                        </button>
-                        <button
-                          type="button"
-                          className="ap-btn ap-btn-danger"
-                          onClick={() => void deleteProfile(profile)}
-                          disabled={busyId === profile.id}
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </article>
-                  ))}
+                <div className="ap-table-container">
+                  <table className="ap-table">
+                    <thead>
+                      <tr>
+                        <th>Status</th>
+                        <th>Profile Name</th>
+                        <th>ID & Created</th>
+                        <th>Proxy</th>
+                        <th className="ap-text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredProfiles.map((profile) => (
+                        <tr key={profile.id}>
+                          <td>
+                            <div className="ap-status-cell">
+                              <span className={`ap-status-dot ${profile.running ? "on" : ""}`} title={profile.running ? "Running" : "Stopped"} />
+                              {profile.running ? "Running" : "Stopped"}
+                            </div>
+                          </td>
+                          <td className="ap-font-medium">{profile.name}</td>
+                          <td>
+                            <div className="ap-text-sm" title={profile.id}>{truncateMiddle(profile.id, 12)}</div>
+                            <div className="ap-text-xs ap-text-muted">{new Date(profile.createdAt).toLocaleString()}</div>
+                          </td>
+                          <td>
+                            {profile.proxy ? (
+                              <span className="ap-badge" title={profile.proxy}>{truncateMiddle(profile.proxy, 20)}</span>
+                            ) : (
+                              <span className="ap-text-muted">Direct</span>
+                            )}
+                          </td>
+                          <td className="ap-actions-cell">
+                            <button
+                              type="button"
+                              className={`ap-btn-icon ${profile.running ? "danger" : "success"}`}
+                              onClick={() => void actionProfile(profile, profile.running ? "stop" : "start")}
+                              disabled={busyId === profile.id}
+                              title={profile.running ? "Stop Profile" : "Start Profile"}
+                            >
+                              {profile.running ? "⏹" : "▶"}
+                            </button>
+                            <button
+                              type="button"
+                              className="ap-btn-icon"
+                              onClick={() => editProfile(profile)}
+                              disabled={busyId === profile.id}
+                              title="Edit Profile"
+                            >
+                              ✎
+                            </button>
+                            <button
+                              type="button"
+                              className="ap-btn-icon danger"
+                              onClick={() => void deleteProfile(profile)}
+                              disabled={busyId === profile.id}
+                              title="Delete Profile"
+                            >
+                              ✕
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </>
@@ -1017,9 +1059,15 @@ function App() {
               </div>
 
               {!selectedProfileForCookies ? (
-                <div className="ap-empty">Select a profile to list cookies.</div>
+                <div className="ap-empty-state" style={{ padding: '2rem' }}>
+                  <div className="ap-empty-icon">🍪</div>
+                  <p>Select a profile to list cookies.</p>
+                </div>
               ) : cookies.length === 0 ? (
-                <div className="ap-empty">No cookies stored for this profile.</div>
+                <div className="ap-empty-state" style={{ padding: '2rem' }}>
+                  <div className="ap-empty-icon">📭</div>
+                  <p>No cookies stored for this profile.</p>
+                </div>
               ) : (
                 <ul className="ap-list-plain">
                   {cookies.map((c, idx) => (
@@ -1174,21 +1222,45 @@ function App() {
           </button>
         </div>
 
-        <div className="ap-runtime-grid">
-          <label>DPR<input type="number" step="0.1" value={runtimeDpr} onChange={(event) => setRuntimeDpr(Number(event.target.value || 1))} /></label>
-          <label>Cores<input type="number" value={runtimeCores} onChange={(event) => setRuntimeCores(Number(event.target.value || 1))} /></label>
-          <label>Memory<input type="number" value={runtimeMemory} onChange={(event) => setRuntimeMemory(Number(event.target.value || 1))} /></label>
-          <label>Reading ms<input type="number" value={runtimeReadingMs} onChange={(event) => setRuntimeReadingMs(Number(event.target.value || 0))} /></label>
-          <label>Geo lat<input type="number" step="0.0001" value={runtimeGeoLat} onChange={(event) => setRuntimeGeoLat(event.target.value)} /></label>
-          <label>Geo lon<input type="number" step="0.0001" value={runtimeGeoLon} onChange={(event) => setRuntimeGeoLon(event.target.value)} /></label>
-          <label>Geo acc<input type="number" value={runtimeGeoAccuracy} onChange={(event) => setRuntimeGeoAccuracy(event.target.value)} /></label>
-          <label className="ap-switch-row">Touch<input type="checkbox" checked={runtimeTouch} onChange={(event) => setRuntimeTouch(event.target.checked)} /></label>
-          <label className="ap-switch-row">Health<input type="checkbox" checked={automationHealthCheck} onChange={(event) => setAutomationHealthCheck(event.target.checked)} /></label>
+        <div className="ap-runtime-groups">
+          <fieldset className="ap-runtime-group">
+            <legend>Hardware Options</legend>
+            <div className="ap-runtime-grid">
+              <label>Cores<input type="number" value={runtimeCores} onChange={(event) => setRuntimeCores(Number(event.target.value || 1))} /></label>
+              <label>Memory<input type="number" value={runtimeMemory} onChange={(event) => setRuntimeMemory(Number(event.target.value || 1))} /></label>
+              <label>DPR<input type="number" step="0.1" value={runtimeDpr} onChange={(event) => setRuntimeDpr(Number(event.target.value || 1))} /></label>
+              <label className="ap-switch-row" style={{ marginTop: '0.5rem' }}>
+                <input type="checkbox" checked={runtimeTouch} onChange={(event) => setRuntimeTouch(event.target.checked)} />
+                Has Touch
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset className="ap-runtime-group">
+            <legend>Geolocation</legend>
+            <div className="ap-runtime-grid">
+              <label>Latitude<input type="number" step="0.0001" value={runtimeGeoLat} onChange={(event) => setRuntimeGeoLat(event.target.value)} /></label>
+              <label>Longitude<input type="number" step="0.0001" value={runtimeGeoLon} onChange={(event) => setRuntimeGeoLon(event.target.value)} /></label>
+              <label>Accuracy<input type="number" value={runtimeGeoAccuracy} onChange={(event) => setRuntimeGeoAccuracy(event.target.value)} /></label>
+            </div>
+          </fieldset>
+
+          <fieldset className="ap-runtime-group">
+            <legend>Behavior</legend>
+            <div className="ap-runtime-grid">
+              <label>Reading (ms)<input type="number" value={runtimeReadingMs} onChange={(event) => setRuntimeReadingMs(Number(event.target.value || 0))} /></label>
+              <label className="ap-switch-row" style={{ marginTop: '0.5rem' }}>
+                <input type="checkbox" checked={automationHealthCheck} onChange={(event) => setAutomationHealthCheck(event.target.checked)} />
+                Run Healthcheck
+              </label>
+            </div>
+          </fieldset>
         </div>
 
         {automationRuns.length === 0 ? (
-          <div className="ap-empty" style={{ marginTop: "0.75rem" }}>
-            No runs yet — start a scenario above.
+          <div className="ap-empty-state" style={{ padding: '2rem' }}>
+            <div className="ap-empty-icon">⏳</div>
+            <p>No runs yet — start a scenario above.</p>
           </div>
         ) : (
           <div className="ap-run-list" style={{ marginTop: "0.75rem" }}>
@@ -1208,8 +1280,16 @@ function App() {
                 <small style={{ color: "var(--ap-text-muted)" }}>
                   {run.sessionProfile} · PID {run.pid ?? "-"} · {run.proxy ?? "no proxy"}
                 </small>
-                <div className="ap-logs">
-                  {run.logs.length === 0 ? <p>No logs yet.</p> : run.logs.slice(-5).map((line, idx) => <p key={idx}>{line}</p>)}
+                <div className="ap-logs terminal-logs">
+                  {run.logs.length === 0 ? (
+                    <div className="ap-text-muted">No logs yet...</div>
+                  ) : (
+                    run.logs.map((line, idx) => (
+                      <div key={idx} className={`log-line ${line.toLowerCase().includes("error") || line.toLowerCase().includes("failed") ? "error" : ""}`}>
+                        {line}
+                      </div>
+                    ))
+                  )}
                 </div>
               </article>
             ))}
@@ -1255,8 +1335,9 @@ function App() {
             ) : null}
           </div>
         ) : (
-          <div className="ap-empty" style={{ marginTop: "0.75rem" }}>
-            No report file yet — run automation with output enabled.
+          <div className="ap-empty-state" style={{ padding: '2rem' }}>
+            <div className="ap-empty-icon">📊</div>
+            <p>No report file yet — run automation with output enabled.</p>
           </div>
         )}
         </div>
@@ -1336,7 +1417,44 @@ function App() {
 
         </div>
 
-        <div className="ap-status-bar">{message}</div>
+        <div className="ap-toast-container">
+          {message !== "Ready" && <div className="ap-toast">{message}</div>}
+        </div>
+
+        {editingProfile && (
+          <div className="ap-modal-backdrop">
+            <div className="ap-modal">
+              <h3>Edit Profile</h3>
+              <div className="ap-form-group">
+                <label>Profile Name</label>
+                <input
+                  className="ap-input"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  placeholder="E.g. My Custom Profile"
+                />
+              </div>
+              <div className="ap-form-group">
+                <label>Proxy Settings (Optional)</label>
+                <input
+                  className="ap-input"
+                  value={editProxy}
+                  onChange={(e) => setEditProxy(e.target.value)}
+                  placeholder="http://user:pass@host:port"
+                />
+                <small className="ap-text-muted">Leave empty to unset.</small>
+              </div>
+              <div className="ap-modal-actions">
+                <button type="button" className="ap-btn" onClick={() => setEditingProfile(null)}>
+                  Cancel
+                </button>
+                <button type="button" className="ap-btn ap-btn-primary" onClick={saveEditProfile} disabled={busyId === editingProfile.id}>
+                  {busyId === editingProfile.id ? "Saving..." : "Save Changes"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
