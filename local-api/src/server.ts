@@ -1092,6 +1092,11 @@ app.post<{ Params: { id: string }; Body: { sessionProfile?: SessionProfileId } }
         `--force-cpu-count=${sessionProfile.hardwareConcurrency}`,
       ];
 
+      // If you are using the local Go JA3/TLS proxy, you will need to ignore cert errors 
+      // because the proxy does a local MITM to change the TLS fingerprint.
+      // Uncomment the line below if you are running the TLS proxy.
+      // extraArgs.push("--ignore-certificate-errors");
+
       if (sessionProfile.webgl) {
         extraArgs.push(`--fake-gpu-vendor=${sessionProfile.webgl.vendor}`);
         extraArgs.push(`--fake-gpu-renderer=${sessionProfile.webgl.renderer}`);
