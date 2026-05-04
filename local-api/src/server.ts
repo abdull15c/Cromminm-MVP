@@ -584,6 +584,9 @@ const addFingerprintInitScript = async (
       { name: "Chrome PDF Viewer", filename: "mhjfbmdgcfjbbpaeojofohoefgiehjai", description: "Portable Document Format" },
       { name: "Chromium PDF Viewer", filename: "mhjfbmdgcfjbbpaeojofohoefgiehjai", description: "Portable Document Format" }
     ],
+    // Note: webgl, canvasNoiseSeed, platform, hardwareConcurrency, and deviceMemory
+    // are now handled natively via C++ cromm-* flags. We pass them here only if 
+    // the stealthPatches.ts script still relies on them for non-native polyfills.
     webgl: profile.webgl,
     canvasNoiseSeed: canvasNoiseSeed ?? Math.random().toString(36).substring(2, 15)
   });
@@ -1089,7 +1092,12 @@ app.post<{ Params: { id: string }; Body: { sessionProfile?: SessionProfileId } }
     try {
       const extraArgs = [
         ...args,
-        `--force-cpu-count=${sessionProfile.hardwareConcurrency}`,
+        `--cromm-cores=${sessionProfile.hardwareConcurrency}`,
+        `--cromm-memory=${sessionProfile.deviceMemory}`,
+        `--cromm-platform=${sessionProfile.clientHints.platform === 'Windows' ? 'Win32' : sessionProfile.clientHints.platform === 'macOS' ? 'MacIntel' : 'Linux armv8l'}`,
+        `--cromm-canvas-seed=${profile.canvasNoiseSeed || id}`,
+        `--cromm-audio-seed=${profile.canvasNoiseSeed || id}`,
+        `--cromm-rect-seed=${profile.canvasNoiseSeed || id}`,
       ];
 
       // If you are using the local Go JA3/TLS proxy, you will need to ignore cert errors 
@@ -1097,8 +1105,8 @@ app.post<{ Params: { id: string }; Body: { sessionProfile?: SessionProfileId } }
       extraArgs.push("--ignore-certificate-errors");
 
       if (sessionProfile.webgl) {
-        extraArgs.push(`--fake-gpu-vendor=${sessionProfile.webgl.vendor}`);
-        extraArgs.push(`--fake-gpu-renderer=${sessionProfile.webgl.renderer}`);
+        extraArgs.push(`--cromm-gl-vendor=${sessionProfile.webgl.vendor}`);
+        extraArgs.push(`--cromm-gl-renderer=${sessionProfile.webgl.renderer}`);
       }
 
       // Открываем порт для удаленного ручного управления
