@@ -34,6 +34,7 @@ type Profile = {
   name: string;
   proxy?: string;
   createdAt: string;
+  canvasNoiseSeed?: string;
 };
 
 type ImportedProfile = {
@@ -691,6 +692,7 @@ app.post<{ Body: { name: string; proxy?: string } }>(
       name: name.trim(),
       proxy: normalizedProxy?.value,
       createdAt: nowIso(),
+      canvasNoiseSeed: Math.random().toString(36).substring(2, 15),
     };
 
     profiles.push(profile);
@@ -795,6 +797,7 @@ app.post<{ Body: { items?: ImportedProfile[]; mode?: "merge" | "replace" } }>(
       name: item.name as string,
       proxy: item.proxy ? (normalizeProxyForChrome(item.proxy) as { ok: true; value: string }).value : undefined,
       createdAt: nowIso(),
+      canvasNoiseSeed: Math.random().toString(36).substring(2, 15),
     }));
 
     const current = mode === "replace" ? [] : await loadProfiles();
@@ -1126,7 +1129,7 @@ app.post<{ Params: { id: string }; Body: { sessionProfile?: SessionProfileId } }
     if (sessionProfile.geolocation) {
       await context.grantPermissions(["geolocation"]);
     }
-    await addFingerprintInitScript(context, sessionProfile);
+    await addFingerprintInitScript(context, sessionProfile, profile.canvasNoiseSeed);
     const page = context.pages()[0] ?? (await context.newPage());
     await page.goto("about:blank");
 
@@ -1455,6 +1458,189 @@ app.post<{ Body: { os?: string; deviceType?: string; location?: string } }>(
     }
   }
 );
+
+// --- Fingerprint Collector Routes ---
+
+app.get("/collector", async (request, reply) => {
+  reply.type("text/html").send(`
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Cromminm Fingerprint Collector</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; padding: 2rem; max-width: 600px; margin: 0 auto; line-height: 1.5; }
+    #status { padding: 1rem; border-radius: 4px; background: #f0f0f0; margin-bottom: 1rem; }
+    .success { background: #d4edda !important; color: #155724; }
+    .error { background: #f8d7da !important; color: #721c24; }
+    pre { background: #222; color: #0f0; padding: 1rem; border-radius: 4px; overflow-x: auto; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <h1>Fingerprint Collector</h1>
+  <div id="status">Collecting data... please wait.</div>
+  <pre id="output"></pre>
+
+  <script>
+    (async function() {
+      const statusEl = document.getElementById('status');
+      const outputEl = document.getElementById('output');
+      
+      try {
+        const fp = {};
+        
+        // 1. Basic Info
+        fp.userAgent = navigator.userAgent;
+        fp.language = navigator.language;
+        fp.languages = navigator.languages ? [...navigator.languages] : [navigator.language];
+        fp.platform = navigator.platform;
+        fp.hardwareConcurrency = navigator.hardwareConcurrency || 2;
+        fp.deviceMemory = navigator.deviceMemory || 4;
+        fp.maxTouchPoints = navigator.maxTouchPoints || 0;
+        fp.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        fp.timezoneOffset = new Date().getTimezoneOffset();
+        
+        // 2. Screen & Viewport
+        fp.screen = {
+          width: window.screen.width,
+          height: window.screen.height,
+          availWidth: window.screen.availWidth,
+          availHeight: window.screen.availHeight,
+          colorDepth: window.screen.colorDepth,
+          pixelDepth: window.screen.pixelDepth
+        };
+        fp.viewport = {
+          width: window.innerWidth,
+          height: window.innerHeight
+        };
+        
+        // 3. Client Hints
+        if (navigator.userAgentData) {
+          try {
+            const highEntropy = await navigator.userAgentData.getHighEntropyValues([
+              'architecture', 'bitness', 'model', 'platformVersion', 'fullVersionList', 'formFactors'
+            ]);
+            fp.clientHints = {
+              platform: navigator.userAgentData.platform,
+              mobile: navigator.userAgentData.mobile,
+              brands: navigator.userAgentData.brands,
+              ...highEntropy
+            };
+          } catch(e) {}
+        }
+        
+        // 4. WebGL
+        const canvas = document.createElement('canvas');
+        const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+        if (gl) {
+          const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+          fp.webgl = {
+            vendor: debugInfo ? gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL) : gl.getParameter(gl.VENDOR),
+            renderer: debugInfo ? gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER),
+            version: gl.getParameter(gl.VERSION),
+            shadingLanguageVersion: gl.getParameter(gl.SHADING_LANGUAGE_VERSION),
+            maxTextureSize: gl.getParameter(gl.MAX_TEXTURE_SIZE),
+            maxViewportDimensions: Array.from(gl.getParameter(gl.MAX_VIEWPORT_DIMS))
+          };
+        }
+        
+        // 5. AudioContext
+        try {
+          const AudioContext = window.AudioContext || window.webkitAudioContext;
+          if (AudioContext) {
+            const audioCtx = new AudioContext();
+            fp.audioContext = {
+              sampleRate: audioCtx.sampleRate,
+              maxChannelCount: audioCtx.destination.maxChannelCount,
+              numberOfInputs: audioCtx.destination.numberOfInputs,
+              numberOfOutputs: audioCtx.destination.numberOfOutputs,
+              channelCount: audioCtx.destination.channelCount
+            };
+          }
+        } catch(e) {}
+        
+        // 6. Determine OS & Device
+        let os = 'unknown';
+        if (fp.userAgent.includes('Windows')) os = 'windows';
+        else if (fp.userAgent.includes('Mac OS X') && !fp.userAgent.includes('iPhone') && !fp.userAgent.includes('iPad')) os = 'macos';
+        else if (fp.userAgent.includes('Android')) os = 'android';
+        else if (fp.userAgent.includes('iPhone') || fp.userAgent.includes('iPad')) os = 'ios';
+        else if (fp.userAgent.includes('Linux')) os = 'linux';
+        
+        let deviceType = 'desktop';
+        if (fp.maxTouchPoints > 0 && (os === 'android' || os === 'ios')) deviceType = 'mobile';
+        
+        fp.os = os;
+        fp.deviceType = deviceType;
+        
+        outputEl.textContent = JSON.stringify(fp, null, 2);
+        
+        // 7. Send to server
+        const res = await fetch('/api/fingerprints/collect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(fp)
+        });
+        
+        if (res.ok) {
+          statusEl.textContent = 'Fingerprint successfully collected and saved!';
+          statusEl.className = 'success';
+        } else {
+          throw new Error('Server returned ' + res.status);
+        }
+      } catch (err) {
+        statusEl.textContent = 'Error: ' + err.message;
+        statusEl.className = 'error';
+        console.error(err);
+      }
+    })();
+  </script>
+</body>
+</html>
+  `);
+});
+
+app.post("/api/fingerprints/collect", async (request, reply) => {
+  try {
+    const fp = request.body as any;
+    const os = fp.os || 'windows';
+    const deviceType = fp.deviceType || 'desktop';
+    const poolKey = \`\${os}_\${deviceType}\`;
+    
+    const dbPath = join(rootDir, "..", "shared", "fingerprints.json");
+    let db = { version: "1.0", lastUpdated: new Date().toISOString(), fingerprints: { windows_desktop: [], macos_desktop: [], android_mobile: [] } };
+    
+    if (existsSync(dbPath)) {
+      db = JSON.parse(await readFile(dbPath, "utf-8"));
+    }
+    
+    if (!db.fingerprints[poolKey]) {
+      db.fingerprints[poolKey] = [];
+    }
+    
+    // Prevent exactly identical basic duplicates
+    const exists = db.fingerprints[poolKey].find((existing: any) => 
+      existing.userAgent === fp.userAgent && 
+      existing.screen?.width === fp.screen?.width &&
+      existing.webgl?.renderer === fp.webgl?.renderer
+    );
+    
+    if (!exists) {
+      db.fingerprints[poolKey].push(fp);
+      db.lastUpdated = new Date().toISOString();
+      await writeFile(dbPath, JSON.stringify(db, null, 2), "utf-8");
+      app.log.info(\`Saved new \${poolKey} fingerprint to pool\`);
+    } else {
+      app.log.info(\`Fingerprint already exists in \${poolKey} pool, skipped\`);
+    }
+    
+    return { ok: true };
+  } catch (error) {
+    app.log.error(error);
+    return reply.code(500).send({ error: "Failed to save fingerprint" });
+  }
+});
 
 app.listen({ port: PORT, host: "0.0.0.0" }).then(async () => {
   app.log.info(`Local API is running on http://0.0.0.0:${PORT}`);

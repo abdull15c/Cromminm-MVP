@@ -474,7 +474,8 @@ const runAttempt = async (attempt) => {
         }
 
         // --- MODULE 1: Canvas & WebGL Noise ---
-        const seed = payload.runId.split('').reduce((a, b) => { a = ((a << 5) - a) + b.charCodeAt(0); return a & a; }, 0);
+        const seedStr = payload.canvasNoiseSeed || payload.runId;
+        const seed = seedStr.split('').reduce((a, b) => { a = ((a << 5) - a) + b.charCodeAt(0); return a & a; }, 0);
         let currentSeed = Math.abs(seed);
         const pseudoRandom = () => {
           currentSeed = (currentSeed * 9301 + 49297) % 233280;
@@ -635,7 +636,7 @@ const runAttempt = async (attempt) => {
         hasTouch: HAS_TOUCH,
         clientHints: sessionProfile.clientHints,
         webgl: sessionProfile.webgl,
-        runId,
+        canvasNoiseSeed: sessionProfile.canvasNoiseSeed,
       },
     );
 
